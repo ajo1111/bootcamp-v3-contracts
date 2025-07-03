@@ -1,7 +1,7 @@
 {
-  "name": "hardhat-project",
+  "name": "bootcamp-v3-contracts",
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^6.0.0",
-    "hardhat": "^2.25.0"
+    "@nomicfoundation/hardhat-toolbox": "5.0.0",
+    "hardhat": "2.24.1"
   }
 }
