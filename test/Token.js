@@ -2,11 +2,13 @@ const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-const { deployTokenFixture } = require("./helpers/TokenFixtures")
+const { deployTokenFixture, transferfromTokenFixture } = require("./helpers/TokenFixtures")
 
 const tokens = (n) => {
     return ethers.parseUnits(n.toString(), 18);
 }
+
+const AMOUNT = tokens(100);
 
 describe("Token", () => { 
     describe("Deployment", () => {
@@ -42,8 +44,6 @@ describe("Token", () => {
     }); // Close Deployment describe block
 
     describe("Sending Tokens", () => {  
-        const AMOUNT = tokens(100);
-
         describe("Success", () => {
                     it("transfers token balances", async () => {
             const { token, deployer, receiver } = await loadFixture(deployTokenFixture);
@@ -68,28 +68,116 @@ describe("Token", () => {
         });
 
         describe("Failure", () => {
-                    it("rejects insufficient balances", async () => {
-            const { token, deployer, receiver } = await loadFixture(deployTokenFixture);
+            it("rejects insufficient balances", async () => {
+                const { token, deployer, receiver } = await loadFixture(deployTokenFixture);
 
-            const INVALID_AMOUNT = tokens(100000000) // 100 million - greater than total supply
-            const ERROR = "Token: Insufficient balance"
+                const invalidAmount = tokens(100000000);
+                const error = "Token: Insufficient balance";
 
-            await expect(token.connect(deployer).transfer(receiver.address, INVALID_AMOUNT)).to.be.revertedWith(ERROR)
-       
-        })
+                await expect(token.connect(deployer).transfer(receiver.address, invalidAmount))
+                    .to.be.revertedWith(error);
+            });
 
-        it("rejects invalid recipient", async () => {
-            const { token, deployer, receiver } = await loadFixture(deployTokenFixture);
+            it("rejects invalid recipient", async () => {
+                const { token, deployer } = await loadFixture(deployTokenFixture);
 
-            const INVALID_ADDRESS = "0x0000000000000000000000000000000000000000"
-            const ERROR = "Token: Recipient address is 0"
+                const invalidAddress = "0x0000000000000000000000000000000000000000";
+                const error = "Token: Recipient address is 0";
 
-            await expect(token.connect(deployer).transfer(INVALID_ADDRESS, AMOUNT))
-                .to.be.revertedWith(ERROR)
-        })
+                await expect(token.connect(deployer).transfer(invalidAddress, AMOUNT))
+                    .to.be.revertedWith(error);
+            });
+        });
+    
+    }); // Close Sending Tokens describe block
 
+    describe("Approving Tokens", () => {  
+        const AMOUNT = tokens(100);
+
+        describe("Success", () => {
+            it("allocates an allowance for delegated token spending", async () => {
+                const { token, deployer, exchange } = await loadFixture(deployTokenFixture);
+
+                const transaction = await token.connect(deployer).approve(exchange.address, AMOUNT) 
+                await transaction.wait();
+
+                expect(await token.allowance(deployer.address, exchange.address)).to.equal(AMOUNT);
+            });
+        
+            it("emits an approval event", async () => {
+                const { token, deployer, exchange } = await loadFixture(deployTokenFixture);
+
+                const transaction = await token.connect(deployer).approve(exchange.address, AMOUNT); 
+                const receipt = await transaction.wait()
+
+                await expect(transaction).to.emit(token, "Approval")
+                    .withArgs(deployer.address, exchange.address, AMOUNT)
+            });
         });
 
-        }); // Close Sending Tokens describe block
-    
-    }); // Close Token describe block
+        describe("Failure", () => {
+            it("rejects invalid spenders", async () => {
+                const { token, deployer } = await loadFixture(deployTokenFixture);
+
+                const INVALID_ADDRESS = "0x0000000000000000000000000000000000000000" // Remove extra space
+                const ERROR = "Token: Recipient address is 0" // Fixed spelling of "Recipient"
+
+                await expect(token.connect(deployer).approve(INVALID_ADDRESS, AMOUNT))
+                    .to.be.revertedWith(ERROR)
+            });
+        });
+
+    }); // Close Approving Tokens describe block
+});
+
+    describe("Delegated Token Transfers", () => {  
+        const AMOUNT = tokens(100);
+
+        describe("Success", () => {
+            it("transfers token balances", async () => {
+                const { token, deployer, receiver} = await loadFixture(transferfromTokenFixture)
+                expect(await token.balanceOf(deployer.address)).to.equal(tokens(999900));
+                expect(await token.balanceOf(receiver.address)).to.equal(AMOUNT);
+            });
+
+            it("resets the allowance", async () => {
+                const { token, deployer, exchange} = await loadFixture(transferfromTokenFixture)
+                expect(await token.allowance(deployer.address, exchange.address)).to.equal(0)
+            });
+
+            it("emits transfer event", async () => {
+                const { token, deployer, receiver, transaction } = await loadFixture(transferfromTokenFixture);
+                await expect(transaction).to.emit(token, "Transfer")
+                    .withArgs(deployer.address, receiver.address, AMOUNT)
+        }) 
+        
+            });
+        });
+
+        describe("Failure", () => {
+            it("rejects insufficient amounts", async () => {
+                const { token, deployer, receiver, exchange } = await loadFixture(transferfromTokenFixture);
+
+                const INVALID_AMOUNT = tokens(100000000);
+                const ERROR = "Token: Insufficient Funds";
+
+                await expect(token.connect(exchange).transferFrom(deployer.address, receiver.address, INVALID_AMOUNT))
+                    .to.be.revertedWith(ERROR);
+            });
+
+            it("rejects insufficient allowance", async () => {
+                const { token, deployer, receiver, exchange } = await loadFixture(transferfromTokenFixture);
+
+                const amount = tokens(100);
+                const ERROR = "Token: Insufficient Allowance";
+
+                // Try to transfer without approval
+                await expect(token.connect(exchange).transferFrom(deployer.address, receiver.address, amount))
+                    .to.be.revertedWith(ERROR);
+            });
+        });
+
+
+
+
+
