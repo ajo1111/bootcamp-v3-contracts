@@ -1,30 +1,61 @@
+const { ethers } = require("hardhat");
+
+const tokens = (n) => {
+    return ethers.parseUnits(n.toString(), 18);
+}
+
 async function deployTokenFixture() {
+    const NAME = "I Ptoken";
+    const SYMBOL = "IPT";
+    const TOTAL_SUPPLY = "1000000";
+
     const Token = await ethers.getContractFactory("Token");
-    const token = await Token.deploy("I Ptoken", "IPT", 1000000);
+    const [deployer, receiver, exchange] = await ethers.getSigners();
 
-    const accounts = await ethers.getSigners();
-    const deployer = accounts[0];
-    const receiver = accounts[1];
-    const exchange = accounts[2];
+    const token = await Token.deploy(NAME, SYMBOL, TOTAL_SUPPLY);
 
-    return { token, deployer, receiver, exchange}
+    return { 
+        token, 
+        deployer, 
+        receiver, 
+        exchange 
+    };
 }
 
 async function transferfromTokenFixture() {
-    const { token, deployer, receiver, exchange } = await deployTokenFixture()
+    const NAME = "I Ptoken";
+    const SYMBOL = "IPT";
+    const TOTAL_SUPPLY = "1000000";
 
-    const AMOUNT = ethers.parseUnits("100", 18);
+    const Token = await ethers.getContractFactory("Token");
+    const [deployer, receiver, exchange] = await ethers.getSigners();
 
-    const approveTx = await token.connect(deployer).approve(exchange.address, AMOUNT);
-    await approveTx.wait();
+    const token = await Token.deploy(NAME, SYMBOL, TOTAL_SUPPLY);
+    const amount = tokens(100);
 
-    const transaction = await token.connect(exchange).transferFrom(deployer.address, receiver.address, AMOUNT);
+    // Approve tokens
+    const transaction = await token.connect(deployer).approve(exchange.address, amount);
     await transaction.wait();
 
-    return { token, deployer, receiver, exchange, transaction }
+    // Execute transfer
+    const transferTx = await token.connect(exchange).transferFrom(
+        deployer.address,
+        receiver.address,
+        amount
+    );
+    await transferTx.wait();
+
+    return {
+        token,
+        deployer,
+        receiver,
+        exchange,
+        amount,
+        transaction: transferTx
+    };
 }
 
-module.exports = {
+module.exports = { 
     deployTokenFixture,
-    transferfromTokenFixture
-}
+    transferfromTokenFixture 
+};
