@@ -2,7 +2,7 @@ const { loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helper
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-const { deployExchangeFixture, depositExchangeFixture } = require("./helpers/ExchangeFixtures")
+const { deployExchangeFixture, depositExchangeFixture, orderExchangeFixture } = require("./helpers/ExchangeFixtures")
 
 const tokens = (n) => {
     return ethers.parseUnits(n.toString(), 18);
@@ -51,50 +51,97 @@ describe("Exchange", () => {
         });
 
         describe("Withdrawing Tokens", () => {
-        const AMOUNT = tokens(100);
+            const AMOUNT = tokens(100);
 
-        describe("Success", () => {
-            it("withdraws token funds", async () => {
-                const { tokens: { token0 }, exchange, accounts } = await loadFixture(depositExchangeFixture);
+            describe("Success", () => {
+                it("withdraws token funds", async () => {
+                    const { tokens: { token0 }, exchange, accounts } = await loadFixture(depositExchangeFixture);
 
-                // Now withdraw tokens
-                const transaction = await exchange.connect(accounts.user1).withdrawToken(await token0.getAddress(), AMOUNT);
-                await transaction.wait();
+                    // Now withdraw tokens
+                    const transaction = await exchange.connect(accounts.user1).withdrawToken(await token0.getAddress(), AMOUNT);
+                    await transaction.wait();
 
-                expect(await token0.balanceOf(await exchange.getAddress())).to.equal(0);
-                expect(await exchange.totalBalanceOf(await token0.getAddress(), accounts.user1.address)).to.equal(0);
+                    expect(await token0.balanceOf(await exchange.getAddress())).to.equal(0);
+                    expect(await exchange.totalBalanceOf(await token0.getAddress(), accounts.user1.address)).to.equal(0);
+                });
+
+                it("emits a TokensWithdrawn event", async () => {
+                    const { tokens: { token0 }, exchange, accounts } = await loadFixture(depositExchangeFixture);
+
+                    const transaction = await exchange.connect(accounts.user1).withdrawToken(await token0.getAddress(), AMOUNT);
+                    await transaction.wait();
+                    
+                    await expect(transaction).to.emit(exchange, "TokensWithdrawn")
+                    .withArgs(
+                       await token0.getAddress(),
+                       accounts.user1.address,
+                       AMOUNT,
+                       0
+                    ); 
+                });
             });
 
-            it("emits a TokensWithdrawn event", async () => {
-                const { tokens: { token0 }, exchange, accounts } = await loadFixture(depositExchangeFixture);
+            describe("Failure", () => {
+               it("fails for insufficient balances", async () => {
+                  const { tokens: { token0 }, exchange, accounts } = await loadFixture(deployExchangeFixture);
+                  const ERROR = "Exchange: Insufficient balance";  
 
-                const transaction = await exchange.connect(accounts.user1).withdrawToken(await token0.getAddress(), AMOUNT);
-                await transaction.wait();
-                
-                await expect(transaction).to.emit(exchange, "TokensWithdrawn")
+                  await expect(exchange.connect(accounts.user1).withdrawToken(
+                    await token0.getAddress(), 
+                    AMOUNT)
+                  ).to.be.revertedWith(ERROR);
+               }) 
+            });
+
+        });
+
+    });
+
+    describe("Making Orders", () => {
+        describe("Success", () => {
+            it("tracks the newly created order", async () => {
+                const { exchange } = await loadFixture(orderExchangeFixture);
+                expect(await exchange.orderCount()).to.equal(1);
+            });
+
+            it("emits an OrderCreated event", async () => {
+                const { tokens: { token0, token1 }, exchange, accounts, transaction } = await loadFixture(orderExchangeFixture);
+
+                const ORDER_ID = 1;
+                const AMOUNT = tokens(1);
+
+                // wait for the tx to be mined and read the block timestamp
+                const receipt = await transaction.wait();
+                const block = await ethers.provider.getBlock(receipt.blockNumber);
+                const TIMESTAMP = BigInt(block.timestamp);
+
+                await expect(transaction).to.emit(exchange, "OrderCreated")
                 .withArgs(
-                   await token0.getAddress(),
+                   ORDER_ID,
                    accounts.user1.address,
+                   await token1.getAddress(),
                    AMOUNT,
-                   0
-                ); 
+                   await token0.getAddress(),
+                   AMOUNT,
+                   TIMESTAMP
+                );
             });
         });
 
         describe("Failure", () => {
-           it("fails for insufficient balances", async () => {
-              const { tokens: { token0 }, exchange, accounts } = await loadFixture(deployExchangeFixture);
-              const ERROR = "Exchange: Insufficient balance";  
+            it("rejects with no balance", async () => {
+                const { tokens: { token0, token1 }, exchange, accounts } = await loadFixture(deployExchangeFixture);
+                const ERROR = "Exchange: Insufficient balance";
 
-              await expect(exchange.connect(accounts.user1).withdrawToken(
-                await token0.getAddress(), 
-                AMOUNT)
-              ).to.be.revertedWith(ERROR);
-           }) 
-        });
+                await expect(exchange.connect(accounts.user1).makeOrder(
+                    await token0.getAddress(),
+                    tokens(1),
+                    await token1.getAddress(),
+                    tokens(1)
+                )).to.be.revertedWith(ERROR);
+            });
+        }); // Close Making Orders describe
+    }); // Close main Exchange describe
 
-    });
 
-
-    });
-});
+}); // Close main Exchange describe
