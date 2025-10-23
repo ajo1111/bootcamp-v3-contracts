@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { Token } from "./Token.sol";
+import {Token} from "./Token.sol";
+import {FlashLoanProvider} from "./FlashLoanProvider.sol";
 
-contract Exchange {
+contract Exchange is FlashLoanProvider {
     // State variables
     address public feeAccount; // the account that receives exchange fees
     uint256 public feePercent; // the fee percentage
@@ -15,13 +16,26 @@ contract Exchange {
     mapping(uint256 => bool) public isOrderFilled;
 
     // Total tokens belonging to a user
-    mapping(address => mapping(address => uint256)) private userTotalTokenBalance;
+    mapping(address => mapping(address => uint256))
+        private userTotalTokenBalance;
     // Total tokens on an active order
-    mapping(address => mapping(address => uint256)) private userActiveOrderTokenBalance;
+    mapping(address => mapping(address => uint256))
+        private userActiveTokenBalance;
 
+    
     // Events
-    event TokensDeposited(address token, address user, uint256 amount, uint256 balance);
-    event TokensWithdrawn(address token, address user, uint256 amount, uint256 balance);
+    event TokensDeposited(
+        address token,
+        address user,
+        uint256 amount,
+        uint256 balance
+    );
+    event TokensWithdrawn(
+        address token,
+        address user,
+        uint256 amount,
+        uint256 balance
+    );
     event OrderCreated(
         uint256 id,
         address user,
@@ -52,13 +66,14 @@ contract Exchange {
     );
 
     struct Order {
-        uint256 id;
-        address user;
-        address tokenGet;
-        uint256 amountGet;
-        address tokenGive;
-        uint256 amountGive;
-        uint256 timestamp;
+        // Attributes of an order
+        uint256 id; // unique identifier for the order
+        address user; // the user who made the order
+        address tokenGet; // Address of the token they receive
+        uint256 amountGet; // Amount they receive
+        address tokenGive; // Address of the token they give
+        uint256 amountGive; // Amount they give
+        uint256 timestamp; // When the order was created
     }
 
     constructor(address _feeAccount, uint256 _feePercent) {
@@ -66,19 +81,14 @@ contract Exchange {
         feePercent = _feePercent;
     }
 
+    
     // -----------------------
     // DEPOSIT & WITHDRAWAL TOKENS
 
     function depositToken(address _token, uint256 _amount) external {
-        // Transfer tokens to exchange first
-        require(
-            Token(_token).transferFrom(msg.sender, address(this), _amount),
-            "Exchange: transferFrom failed"
-        );
-
         // Update user balance
         userTotalTokenBalance[_token][msg.sender] += _amount;
-
+    
         // Emit an event
         emit TokensDeposited(
             _token,
@@ -86,10 +96,21 @@ contract Exchange {
             _amount,
             userTotalTokenBalance[_token][msg.sender]
         );
+
+        // Transfer Tokens to Exchange
+        require(
+            Token(_token).transferFrom(msg.sender, address(this), _amount),
+            "Exchange: Token transfer failed"
+        );
     }
 
     function withdrawToken(address _token, uint256 _amount) external {
-        require(userTotalTokenBalance[_token][msg.sender] >= _amount, "Exchange: Insufficient balance");
+        require(
+            totalBalanceOf(_token, msg.sender) -
+                activeBalanceOf(_token, msg.sender) >=
+                _amount, 
+            "Exchange: Insufficient balance"
+        );
 
         // Update The User Balance
         userTotalTokenBalance[_token][msg.sender] -= _amount;
@@ -107,17 +128,25 @@ contract Exchange {
             Token(_token).transfer(msg.sender, _amount),
             "Exchange: Token transfer failed"
         );
+
     }
 
-    function totalBalanceOf(address _token, address _user) public view returns (uint256) {
+    function totalBalanceOf(
+        address _token,
+        address _user
+    ) public view returns (uint256) {
         return userTotalTokenBalance[_token][_user];
     }
 
-    function activeOrderBalanceOf(address _token, address _user) public view returns (uint256) {
-        return userActiveOrderTokenBalance[_token][_user];
+    function activeBalanceOf(
+        address _token,
+        address _user
+    ) public view returns (uint256) {
+        return userActiveTokenBalance[_token][_user];
     }
 
-    // --- ORDERS ---
+    // --------------------------
+    // MAKE & CANCEL ORDERS
 
     function makeOrder(
         address _tokenGet,
@@ -125,24 +154,28 @@ contract Exchange {
         address _tokenGive,
         uint256 _amountGive
     ) external {
-        require(userTotalTokenBalance[_tokenGive][msg.sender] >= _amountGive, "Exchange: Insufficient balance");
+        require(
+            totalBalanceOf(_tokenGive, msg.sender) >=
+                activeBalanceOf(_tokenGive, msg.sender) + _amountGive,
+                "Exchange: Insufficient balance"
+        );
 
         // Update order count
-        orderCount++;
+        orderCount ++;
 
         // Instantiate a new order
-        orders[orderCount] = Order({
-            id: orderCount,
-            user: msg.sender,
-            tokenGet: _tokenGet,
-            amountGet: _amountGet,
-            tokenGive: _tokenGive,
-            amountGive: _amountGive,
-            timestamp: block.timestamp
-        });
+        orders[orderCount] = Order(
+            orderCount,
+            msg.sender,
+            _tokenGet,
+            _amountGet,
+            _tokenGive,
+            _amountGive,
+            block.timestamp
+        );
 
         // Update the users active balance
-        userActiveOrderTokenBalance[_tokenGive][msg.sender] += _amountGive;
+        userActiveTokenBalance[_tokenGive][msg.sender] += _amountGive;
 
         // Emit an event
         emit OrderCreated(
@@ -153,14 +186,14 @@ contract Exchange {
             _tokenGive,
             _amountGive,
             block.timestamp
-        );
-        
+        );    
     }
 
     function cancelOrder(uint256 _id) external {
+        // Fetch order
         Order storage order = orders[_id];
 
-        // Ensure the order exists
+        // Order must exist
         require(order.id == _id, "Exchange: order does not exist");
 
         // Ensure the caller of the function is the owner of the order
@@ -169,13 +202,13 @@ contract Exchange {
         // Cancel the order
         isOrderCancelled[_id] = true;
 
-        // Update the active balance
-        userActiveOrderTokenBalance[order.tokenGive][order.user] -= order.amountGive;
+        // Update user's active token balance
+        userActiveTokenBalance[order.tokenGive][order.user] -= order.amountGive;
 
         // Emit an event
         emit OrderCancelled(
             order.id,
-            order.user,
+            msg.sender,
             order.tokenGet,
             order.amountGet,
             order.tokenGive,
@@ -183,7 +216,8 @@ contract Exchange {
             block.timestamp
         );
     }
-    // ---- ------------------
+
+    // --------------------------
     // EXECUTING ORDERS -----
 
     function fillOrder(uint256 _id) external {  
@@ -197,8 +231,10 @@ contract Exchange {
         // FETCH the order
         Order storage order = orders[_id];
 
-        // Present filling if msg.sender already has their tokens listed on active orders
-        require(totalBalanceOf(order.tokenGet, msg.sender) - activeOrderBalanceOf(order.tokenGet, msg.sender) >= order.amountGet,
+        // Present filling if msg.sender already has their tokens listed
+        require(
+            totalBalanceOf(order.tokenGet, msg.sender) >= 
+                activeBalanceOf(order.tokenGet, msg.sender) + order.amountGet,
             "Exchange: insufficient balance"
         );
 
@@ -230,7 +266,8 @@ contract Exchange {
 
         // Execute the trade
         // Let the user who created the order get their tokens
-        userTotalTokenBalance[_tokenGet][msg.sender] -= (_amountGet + _feeAmount);
+        userTotalTokenBalance[_tokenGet][msg.sender] -= (_amountGet +
+            _feeAmount);
         userTotalTokenBalance[_tokenGet][_user] += _amountGet;
 
         // Charge the fee
@@ -242,9 +279,9 @@ contract Exchange {
         userTotalTokenBalance[_tokenGive][msg.sender] += _amountGive;
 
         // Update user's active order balance
-        userActiveOrderTokenBalance[_tokenGive][_user] -= _amountGive;
+        userActiveTokenBalance[_tokenGive][_user] -= _amountGive;
 
-        // Emit a trade event (optional)
+        // Emit trade event
         emit OrderFilled(
             _orderId,
             msg.sender,

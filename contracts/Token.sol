@@ -33,11 +33,9 @@ contract Token {
         address _to,
         uint256 _value) public returns (bool success) {
         require(balanceOf[msg.sender] >= _value, "Token: Insufficient balance");
-        require(_to != address(0), "Token: Recipient address is 0");
 
         _transfer(msg.sender, _to, _value);
         
-
         return true;
     }
     
@@ -54,7 +52,7 @@ contract Token {
     function approve(
         address _spender, 
         uint256 _value
-    ) public returns (bool) {
+    ) public returns (bool success) {
         require(_spender != address(0), "Token: Recipient address is 0"); // Fixed spelling
 
         allowance[msg.sender][_spender] = _value;
@@ -68,7 +66,7 @@ contract Token {
         address _to, 
         uint256 _value
     ) public returns (bool success) {
-        require(_value <= balanceOf[_from], "Token: Insufficient balance");
+        require(_value <= balanceOf[_from], "Token: Insufficient Funds");
         require(
             _value <= allowance[_from][msg.sender], 
             "Token: Insufficient Allowance"

@@ -166,7 +166,7 @@ describe("Delegated Token Transfers", () => {
             
             const amount = tokens(100);
             const invalidAmount = tokens(100000000); // Amount greater than total supply
-            const ERROR = "Token: Insufficient balance";
+            const ERROR = "Token: Insufficient Funds"; // Changed from "Token: Insufficient balance"
 
             // First approve tokens
             await token.connect(deployer).approve(exchange.address, amount);
