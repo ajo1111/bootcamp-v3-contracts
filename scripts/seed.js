@@ -10,27 +10,6 @@ function wait(seconds) {
 }
 
 async function main() {
-   const IPT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
-   const mUSDC_ADDRESS = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
-   const mLINK_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
-   const EXCHANGE_ADDRESS = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
-   const FLASH_LOAN_USER_ADDRESS = "0x663f3ad617193148711d28f5334ee4ed07016602"
-
-    const ipt = await hre.ethers.getContractAt("Token", IPT_ADDRESS);
-    console.log(`Token fetched: ${await ipt.getAddress()}`);
-
-    const musdc = await hre.ethers.getContractAt("Token", mUSDC_ADDRESS);
-    console.log(`mUSDC fetched: ${await musdc.getAddress()}`);
-
-    const mlink = await hre.ethers.getContractAt("Token", mLINK_ADDRESS);
-    console.log(`mLINK fetched: ${await mlink.getAddress()}`);
-    
-    const exchange = await hre.ethers.getContractAt("Exchange", EXCHANGE_ADDRESS);
-    console.log(`Exchange fetched: ${await exchange.getAddress()}`);
-
-    const flashLoanUser = await hre.ethers.getContractAt("FlashLoanUser", FLASH_LOAN_USER_ADDRESS);
-    console.log(`FlashLoanUser fetched: ${await flashLoanUser.getAddress()}`);
-
     // Fetch accounts from wallet - these are unlocked
     const accounts = await ethers.getSigners();
 
@@ -44,46 +23,106 @@ async function main() {
     const user1 = accounts[2];
     const user2 = accounts[3];
 
+    // Deploy Token contracts
+    const Token = await ethers.getContractFactory("Token");
+
+    const ipt = await Token.deploy("Impact Token", "IPT", "1000000");
+    await ipt.waitForDeployment();
+    console.log(`IPT Token deployed to: ${await ipt.getAddress()}`);
+
+    const musdc = await Token.deploy("Mock USDC", "mUSDC", "1000000");
+    await musdc.waitForDeployment();
+    console.log(`mUSDC Token deployed to: ${await musdc.getAddress()}`);
+
+    const mlink = await Token.deploy("Mock LINK", "mLINK", "1000000");
+    await mlink.waitForDeployment();
+    console.log(`mLINK Token deployed to: ${await mlink.getAddress()}`);
+
+    // Deploy Exchange
+    const Exchange = await ethers.getContractFactory("Exchange");
+    const exchange = await Exchange.deploy(collector.address, 10);
+    await exchange.waitForDeployment();
+    console.log(`Exchange deployed to: ${await exchange.getAddress()}`);
+
+    // Deploy FlashLoanUser
+    const FlashLoanUser = await ethers.getContractFactory("FlashLoanUser");
+    const flashLoanUser = await FlashLoanUser.deploy(await exchange.getAddress());
+    await flashLoanUser.waitForDeployment();
+    console.log(`FlashLoanUser deployed to: ${await flashLoanUser.getAddress()}\n`);
+
+    const IPT_ADDRESS = await ipt.getAddress();
+    const mUSDC_ADDRESS = await musdc.getAddress();
+    const mLINK_ADDRESS = await mlink.getAddress();
+
     // -----
     // Distribute tokens
     // -----
 
-    const AMOUNT = 100000
     let transaction, result;
 
-    // Deployer transfers 100,000 IPT...
-    transaction = await ipt.connect(deployer).transfer(user1.address, tokens(AMOUNT));
+    // Deployer transfers 10,000 IPT to user1...
+    transaction = await ipt.connect(deployer).transfer(user1.address, tokens(10000));
     await transaction.wait();
-    console.log(`Transferred ${AMOUNT} tokens from ${deployer.address} to ${user1.address}\n`);
+    console.log(`Transferred 10000 IPT from ${deployer.address} to ${user1.address}\n`);
 
-    // Deployer transfers 100,000 mUSDC...
-    transaction = await musdc.connect(deployer).transfer(user2.address, tokens(AMOUNT));
+    // Deployer transfers 10,000 mUSDC to user2...
+    transaction = await musdc.connect(deployer).transfer(user2.address, tokens(10000));
     await transaction.wait();
-    console.log(`Transferred ${AMOUNT} tokens from ${deployer.address} to ${user1.address}\n`);
+    console.log(`Transferred 10000 mUSDC from ${deployer.address} to ${user2.address}\n`);
+
+    // Give user1 some mUSDC too
+    transaction = await musdc.connect(deployer).transfer(user1.address, tokens(10000));
+    await transaction.wait();
+    console.log(`Transferred 10000 mUSDC from ${deployer.address} to ${user1.address}\n`);
+
+    // Give user2 some IPT too
+    transaction = await ipt.connect(deployer).transfer(user2.address, tokens(10000));
+    await transaction.wait();
+    console.log(`Transferred 10000 IPT from ${deployer.address} to ${user2.address}\n`);
 
     // -----
-    // Users deposit their tokens into the exchange
+    // Users deposit HALF their tokens into the exchange
     // -----
 
-    // User1 approves 100,000 IPT...
-    transaction = await ipt.connect(user1).approve(exchange.getAddress(), tokens(AMOUNT));
+    // User1 approves 5,000 IPT...
+    transaction = await ipt.connect(user1).approve(exchange.getAddress(), tokens(5000));
     await transaction.wait();
-    console.log('Approved ${AMOUNT} IPT from ${user1.address}');
+    console.log(`Approved 5000 IPT from ${user1.address}`);
 
-    // User 1 deposits 100,000 IPT...
-    transaction = await exchange.connect(user1).depositToken(IPT_ADDRESS, tokens(AMOUNT));
+    // User 1 deposits 5,000 IPT (keeps 5,000 in wallet)
+    transaction = await exchange.connect(user1).depositToken(IPT_ADDRESS, tokens(5000));
     await transaction.wait();
-    console.log(`Deposited ${AMOUNT} IPT from ${user1.address}\n`);
+    console.log(`Deposited 5000 IPT from ${user1.address}\n`);
 
-    // User2 approves 100,000 mUSDC...
-    transaction = await musdc.connect(user2).approve(await exchange.getAddress(), tokens(AMOUNT));
+    // User1 approves 5,000 mUSDC...
+    transaction = await musdc.connect(user1).approve(await exchange.getAddress(), tokens(5000));
     await transaction.wait();
-    console.log(`Approved ${AMOUNT} mUSDC from ${user2.address}`);
+    console.log(`Approved 5000 mUSDC from ${user1.address}`);
 
-    // User 2 deposits 100,000 mUSDC...
-    transaction = await exchange.connect(user2).depositToken(mUSDC_ADDRESS, tokens(AMOUNT));
+    // User 1 deposits 5,000 mUSDC (keeps 5,000 in wallet)
+    transaction = await exchange.connect(user1).depositToken(mUSDC_ADDRESS, tokens(5000));
     await transaction.wait();
-    console.log(`Deposited ${AMOUNT} mUSDC from ${user2.address}\n`);
+    console.log(`Deposited 5000 mUSDC from ${user1.address}\n`);
+
+    // User2 approves 5,000 mUSDC...
+    transaction = await musdc.connect(user2).approve(await exchange.getAddress(), tokens(5000));
+    await transaction.wait();
+    console.log(`Approved 5000 mUSDC from ${user2.address}`);
+
+    // User 2 deposits 5,000 mUSDC (keeps 5,000 in wallet)
+    transaction = await exchange.connect(user2).depositToken(mUSDC_ADDRESS, tokens(5000));
+    await transaction.wait();
+    console.log(`Deposited 5000 mUSDC from ${user2.address}\n`);
+
+    // User2 approves 5,000 IPT...
+    transaction = await ipt.connect(user2).approve(await exchange.getAddress(), tokens(5000));
+    await transaction.wait();
+    console.log(`Approved 5000 IPT from ${user2.address}`);
+
+    // User 2 deposits 5,000 IPT (keeps 5,000 in wallet)
+    transaction = await exchange.connect(user2).depositToken(IPT_ADDRESS, tokens(5000));
+    await transaction.wait();
+    console.log(`Deposited 5000 IPT from ${user2.address}\n`);
     
     // -----
     // Cancel some orders
@@ -95,8 +134,9 @@ async function main() {
     result = await transaction.wait();
     console.log(`Made order from ${user1.address}`);
 
+    // Get the orderId from the transaction receipt logs
     orderId = result.logs[0].args.id;
-    
+
     // User 1 cancels order
     transaction = await exchange.connect(user1).cancelOrder(orderId);
     result = await transaction.wait();
@@ -111,7 +151,7 @@ async function main() {
         transaction = await exchange.connect(user1).makeOrder(mUSDC_ADDRESS, tokens(10 * i), IPT_ADDRESS, tokens(10));
         result = await transaction.wait();
 
-        console.log(`Made order from ${user1.address}`);    
+        console.log(`Made order from ${user1.address}`);
 
         //User 2 fills order
         orderId = result.logs[0].args.id;
